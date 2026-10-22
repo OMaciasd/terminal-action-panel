@@ -1,0 +1,45 @@
+name: Build and publish Windows release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build the versioned package
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF_NAME -replace '^v', ''
+          ./build.ps1 -Version $version -OutputDirectory ./release-package
+
+      - name: Run unit and ConPTY integration tests
+        shell: pwsh
+        run: ./tests/Run-Tests.ps1 -ExecutablePath ./release-package/TerminalActionPanel.exe
+
+      - name: Create release archive and checksum
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:GITHUB_WORKSPACE 'TerminalActionPanel-win-x64.zip'
+          Compress-Archive -Path './release-package/*' -DestinationPath $archive -CompressionLevel Optimal
+          $hash = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()
+          [System.IO.File]::WriteAllText("$archive.sha256", "$hash  TerminalActionPanel-win-x64.zip`n")
+
+      - name: Create GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $title = "Terminal Action Panel $env:GITHUB_REF_NAME"
+          gh release create $env:GITHUB_REF_NAME `
+            ./TerminalActionPanel-win-x64.zip `
+            ./TerminalActionPanel-win-x64.zip.sha256 `
+            --title $title `
+            --generate-notes

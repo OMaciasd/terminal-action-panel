@@ -1,0 +1,25 @@
+name: Windows build and tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Build Windows application
+        shell: pwsh
+        run: ./build.ps1 -Version 0.0.0-ci -OutputDirectory ./artifacts
+
+      - name: Run unit and ConPTY integration tests
+        shell: pwsh
+        run: ./tests/Run-Tests.ps1 -ExecutablePath ./artifacts/TerminalActionPanel.exe
