@@ -1,4 +1,4 @@
-﻿param(
+param(
     [switch] $Update,
     [switch] $NoLaunch
 )
@@ -20,10 +20,10 @@ if (-not [Environment]::Is64BitOperatingSystem) {
     throw 'Terminal Action Panel requiere Windows de 64 bits.'
 }
 if ([Environment]::OSVersion.Version.Build -lt 17763) {
-    throw 'Se requiere Windows 10 versión 1809 (compilación 17763) o posterior para ConPTY.'
+    throw 'Se requiere Windows 10 version 1809 (compilacion 17763) o posterior para ConPTY.'
 }
 if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
-    throw 'Windows no proporcionó la carpeta LOCALAPPDATA del usuario actual.'
+    throw 'Windows no proporciono la carpeta LOCALAPPDATA del usuario actual.'
 }
 
 [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
@@ -42,7 +42,21 @@ function Get-InstalledAppProcess {
             Where-Object { $_.ExecutablePath -and [string]::Equals($_.ExecutablePath, $installedExecutable, [StringComparison]::OrdinalIgnoreCase) })
     }
     catch {
-        throw "No se pudo comprobar si la aplicación está abierta; cierra Terminal Action Panel antes de continuar. $($_.Exception.Message)"
+        throw "No se pudo comprobar si la aplicacion esta abierta; cierra Terminal Action Panel antes de continuar. $($_.Exception.Message)"
+    }
+}
+
+function Get-Sha256Hex {
+    param([Parameter(Mandatory = $true)][string] $Path)
+    $stream = [System.IO.File]::OpenRead($Path)
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $hashBytes = $sha.ComputeHash($stream)
+        return ([System.BitConverter]::ToString($hashBytes) -replace '-', '').ToLowerInvariant()
+    }
+    finally {
+        $sha.Dispose()
+        $stream.Dispose()
     }
 }
 
@@ -60,7 +74,7 @@ function Set-ApplicationShortcut {
     $shortcut = $shell.CreateShortcut($ShortcutPath)
     $shortcut.TargetPath = $TargetPath
     $shortcut.WorkingDirectory = $WorkingDirectory
-    $shortcut.Description = 'Abrir Terminal Action Panel con una sesión real de PowerShell.'
+    $shortcut.Description = 'Abrir Terminal Action Panel con una sesion real de PowerShell.'
     $shortcut.IconLocation = "$TargetPath,0"
     $shortcut.Save()
     [void][Runtime.InteropServices.Marshal]::ReleaseComObject($shortcut)
@@ -72,33 +86,33 @@ try {
     $archivePath = Join-Path $temporaryRoot $assetName
     $expandedDirectory = Join-Path $temporaryRoot 'package'
 
-    Write-Host "Consultando la última versión publicada de $repository …"
+    Write-Host "Consultando la ultima version publicada de $repository ..."
     $release = Invoke-RestMethod -Uri $apiUri -Headers $headers -Method Get -UseBasicParsing
     if ($release.draft -or $release.prerelease) {
-        throw 'La API de GitHub no devolvió una versión estable publicada.'
+        throw 'La API de GitHub no devolvio una version estable publicada.'
     }
     if ($release.tag_name -notmatch '^v(?<version>[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?)$') {
-        throw "La etiqueta publicada tiene un formato de versión no reconocido: $($release.tag_name)"
+        throw "La etiqueta publicada tiene un formato de version no reconocido: $($release.tag_name)"
     }
     $releaseVersion = $Matches.version
 
     $asset = @($release.assets | Where-Object { $_.name -eq $assetName }) | Select-Object -First 1
     if ($null -eq $asset) {
-        throw "La publicación $($release.tag_name) no contiene $assetName."
+        throw "La publicacion $($release.tag_name) no contiene $assetName."
     }
     $digestMatch = [regex]::Match([string]$asset.digest, '^sha256:(?<hash>[0-9a-fA-F]{64})$')
     if (-not $digestMatch.Success) {
-        throw 'GitHub no proporcionó un digest SHA-256 verificable para el paquete; no se instalará.'
+        throw 'GitHub no proporciono un digest SHA-256 verificable para el paquete; no se instalara.'
     }
     if ($asset.browser_download_url -notmatch '^https://github\.com/OMaciasd/terminal-action-panel/releases/download/') {
-        throw 'La URL del paquete no pertenece a la publicación oficial esperada.'
+        throw 'La URL del paquete no pertenece a la publicacion oficial esperada.'
     }
 
     Invoke-WebRequest -Uri $asset.browser_download_url -Headers $headers -OutFile $archivePath -UseBasicParsing
-    $actualHash = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+    $actualHash = Get-Sha256Hex -Path $archivePath
     $expectedHash = $digestMatch.Groups['hash'].Value.ToLowerInvariant()
     if (-not [string]::Equals($actualHash, $expectedHash, [StringComparison]::Ordinal)) {
-        throw "La verificación SHA-256 falló. Esperado: $expectedHash; recibido: $actualHash."
+        throw "La verificacion SHA-256 fallo. Esperado: $expectedHash; recibido: $actualHash."
     }
 
     Add-Type -AssemblyName System.IO.Compression.FileSystem
@@ -124,15 +138,15 @@ try {
         $zip.Dispose()
     }
 
-    Expand-Archive -LiteralPath $archivePath -DestinationPath $expandedDirectory -Force
+    [System.IO.Compression.ZipFile]::ExtractToDirectory($archivePath, $expandedDirectory)
     $packageVersion = Get-Content -LiteralPath (Join-Path $expandedDirectory 'version.json') -Raw | ConvertFrom-Json
     if ($packageVersion.version -ne $releaseVersion -or $packageVersion.releaseTag -ne $release.tag_name) {
-        throw 'La versión del contenido del paquete no coincide con la publicación consultada.'
+        throw 'La version del contenido del paquete no coincide con la publicacion consultada.'
     }
 
     $runningProcesses = Get-InstalledAppProcess
     if ($runningProcesses.Count -gt 0) {
-        throw 'Cierra Terminal Action Panel antes de instalar o actualizar, para no reemplazar una aplicación en uso.'
+        throw 'Cierra Terminal Action Panel antes de instalar o actualizar, para no reemplazar una aplicacion en uso.'
     }
 
     if (-not (Test-Path -LiteralPath $installDirectory -PathType Container)) {
@@ -155,7 +169,7 @@ try {
     $mode = if ($Update) { 'actualizada' } else { 'instalada' }
     Write-Host "Terminal Action Panel $($release.tag_name) $mode en $installDirectory."
     Write-Host "SHA-256 verificado: $actualHash"
-    Write-Host 'Se creó acceso directo en el escritorio y en el menú Inicio.'
+    Write-Host 'Se creo acceso directo en el escritorio y en el menu Inicio.'
 
     if (-not $NoLaunch -and -not $Update) {
         Start-Process -FilePath $installedExecutable -WorkingDirectory $installDirectory
