@@ -91,7 +91,7 @@ Los comandos se envían como un bloque multilínea en el ámbito actual de Power
 En Windows, con Windows PowerShell 5.1:
 
 ```powershell
-./build.ps1 -Version 1.0.1 -OutputDirectory ./dist
+./build.ps1 -Version 1.0.2 -OutputDirectory ./dist
 ./tests/Run-Tests.ps1 -ExecutablePath ./dist/TerminalActionPanel.exe
 ./tests/Ui-SmokeTest.ps1 -ExecutablePath ./dist/TerminalActionPanel.exe
 ```

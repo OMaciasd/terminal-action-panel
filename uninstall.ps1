@@ -12,6 +12,26 @@ $desktopShortcut = Join-Path ([Environment]::GetFolderPath([Environment+SpecialF
 $startMenuDirectory = Join-Path ([Environment]::GetFolderPath([Environment+SpecialFolder]::Programs)) 'Terminal Action Panel'
 $startMenuShortcut = Join-Path $startMenuDirectory 'Terminal Action Panel.lnk'
 $executable = Join-Path $installDirectory 'TerminalActionPanel.exe'
+$script:failedRemovals = $false
+
+function Remove-PathWithRetry {
+    param([Parameter(Mandatory = $true)][string] $Path)
+    for ($attempt = 0; $attempt -lt 10; $attempt++) {
+        if (-not (Test-Path -LiteralPath $Path)) {
+            return $true
+        }
+        try {
+            Remove-Item -LiteralPath $Path -Force -ErrorAction Stop
+            return $true
+        }
+        catch {
+            Start-Sleep -Milliseconds 400
+        }
+    }
+    $script:failedRemovals = $true
+    Write-Warning "No se pudo eliminar $Path. Cierra el Explorador de Windows o OneDrive y eliminalo manualmente."
+    return $false
+}
 
 if (Test-Path -LiteralPath $executable -PathType Leaf) {
     $running = @()
@@ -33,6 +53,7 @@ if (Test-Path -LiteralPath $executable -PathType Leaf) {
     if ($running.Count -gt 0) {
         foreach ($process in $running) {
             Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
+            Wait-Process -Id $process.ProcessId -Timeout 5 -ErrorAction SilentlyContinue
         }
     }
 }
@@ -44,26 +65,31 @@ $ownedFiles = @(
 foreach ($ownedFile in $ownedFiles) {
     $path = Join-Path $installDirectory $ownedFile
     if (Test-Path -LiteralPath $path -PathType Leaf) {
-        Remove-Item -LiteralPath $path -Force
+        [void](Remove-PathWithRetry -Path $path)
     }
 }
 
 foreach ($shortcut in @($desktopShortcut, $startMenuShortcut)) {
     if (Test-Path -LiteralPath $shortcut -PathType Leaf) {
-        Remove-Item -LiteralPath $shortcut -Force
+        [void](Remove-PathWithRetry -Path $shortcut)
     }
 }
 if ((Test-Path -LiteralPath $startMenuDirectory -PathType Container) -and
     @(Get-ChildItem -LiteralPath $startMenuDirectory -Force).Count -eq 0) {
-    Remove-Item -LiteralPath $startMenuDirectory -Force
+    [void](Remove-PathWithRetry -Path $startMenuDirectory)
 }
 
 if ((Test-Path -LiteralPath $installDirectory -PathType Container) -and
     @(Get-ChildItem -LiteralPath $installDirectory -Force).Count -eq 0) {
-    Remove-Item -LiteralPath $installDirectory -Force
+    [void](Remove-PathWithRetry -Path $installDirectory)
 }
 elseif (Test-Path -LiteralPath $installDirectory -PathType Container) {
     Write-Host "Se conservaron archivos ajenos a la aplicación en $installDirectory."
 }
 
-Write-Host 'Terminal Action Panel se desinstaló. No se eliminó el historial ni archivos de PowerShell.'
+if ($script:failedRemovals) {
+    Write-Warning 'La desinstalación terminó con elementos pendientes. Revisa los avisos anteriores.'
+}
+else {
+    Write-Host 'Terminal Action Panel se desinstaló. No se eliminó el historial ni archivos de PowerShell.'
+}
