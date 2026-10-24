@@ -60,6 +60,54 @@ function Get-Sha256Hex {
     }
 }
 
+function Assert-FilesReplaceable {
+    param([Parameter(Mandatory = $true)][string[]] $Files)
+    foreach ($name in $Files) {
+        $path = Join-Path $installDirectory $name
+        if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
+            continue
+        }
+        $unlocked = $false
+        for ($attempt = 0; $attempt -lt 20; $attempt++) {
+            try {
+                $stream = [System.IO.File]::Open(
+                    $path,
+                    [System.IO.FileMode]::Open,
+                    [System.IO.FileAccess]::ReadWrite,
+                    [System.IO.FileShare]::None)
+                $stream.Dispose()
+                $unlocked = $true
+                break
+            }
+            catch {
+                Start-Sleep -Milliseconds 250
+            }
+        }
+        if (-not $unlocked) {
+            throw "No se puede reemplazar $path porque esta en uso. Cierra Terminal Action Panel, espera a que el antivirus termine y vuelve a intentarlo."
+        }
+    }
+}
+
+function Copy-OwnedFile {
+    param(
+        [Parameter(Mandatory = $true)][string] $Source,
+        [Parameter(Mandatory = $true)][string] $Destination
+    )
+    for ($attempt = 0; $attempt -lt 20; $attempt++) {
+        try {
+            Copy-Item -LiteralPath $Source -Destination $Destination -Force -ErrorAction Stop
+            return
+        }
+        catch {
+            if ($attempt -eq 19) {
+                throw "No se pudo copiar $Source a $Destination. $($_.Exception.Message)"
+            }
+            Start-Sleep -Milliseconds 250
+        }
+    }
+}
+
 function Set-ApplicationShortcut {
     param(
         [Parameter(Mandatory = $true)][string] $ShortcutPath,
@@ -156,9 +204,10 @@ try {
         'TerminalActionPanel.exe', 'host-init.ps1', 'install.ps1', 'update.ps1',
         'uninstall.ps1', 'README.md', 'LICENSE', 'version.json'
     )
+    Assert-FilesReplaceable -Files $ownedFiles
     foreach ($ownedFile in $ownedFiles) {
-        Copy-Item -LiteralPath (Join-Path $expandedDirectory $ownedFile) `
-            -Destination (Join-Path $installDirectory $ownedFile) -Force
+        Copy-OwnedFile -Source (Join-Path $expandedDirectory $ownedFile) `
+            -Destination (Join-Path $installDirectory $ownedFile)
     }
 
     Set-ApplicationShortcut -ShortcutPath (Join-Path $desktopDirectory 'Terminal Action Panel.lnk') `

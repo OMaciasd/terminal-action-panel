@@ -66,6 +66,24 @@ function Set-ClipboardText {
     throw 'No se pudo escribir en el portapapeles de prueba.'
 }
 
+function Get-FileSha256 {
+    param([Parameter(Mandatory = $true)][string] $Path)
+    $stream = [System.IO.File]::OpenRead($Path)
+    $sha = [System.Security.Cryptography.SHA256]::Create()
+    try {
+        $hashBytes = $sha.ComputeHash($stream)
+        return ([System.BitConverter]::ToString($hashBytes) -replace '-', '').ToLowerInvariant()
+    }
+    finally {
+        $sha.Dispose()
+        $stream.Dispose()
+    }
+}
+
+$historyPath = Join-Path $env:APPDATA 'Microsoft\Windows\PowerShell\PSReadLine\ConsoleHost_history.txt'
+$historyExistedBefore = Test-Path -LiteralPath $historyPath -PathType Leaf
+$historyHashBefore = if ($historyExistedBefore) { Get-FileSha256 -Path $historyPath } else { $null }
+
 function Get-AllNames {
     param([Windows.Automation.AutomationElement] $Window)
     $elements = $Window.FindAll([Windows.Automation.TreeScope]::Descendants,
@@ -188,6 +206,33 @@ try {
     Wait-ForStatus -Window $window -Text 'Lista'
     Write-Host 'PASS: comando multilínea del portapapeles completado.'
 
+    Set-ClipboardText '$tapName = Read-Host "TAP_NAME"; Write-Output "TAP_INTERACTIVE_$tapName"'
+    Invoke-Control $paste
+    Wait-ForStatus -Window $window -Text 'Ejecutando' -Timeout 5
+    Wait-Until -Description 'entrada al proceso habilitada' -Predicate {
+        try {
+            $box = Find-NamedElement -Window $window -Name 'Entrada al proceso'
+            $box.Current.IsEnabled
+        }
+        catch {
+            $false
+        }
+    }
+    $processInput = Find-NamedElement -Window $window -Name 'Entrada al proceso'
+    $valuePattern = $processInput.GetCurrentPattern([Windows.Automation.ValuePattern]::Pattern)
+    $valuePattern.SetValue('OK')
+    $send = Find-NamedElement -Window $window -Name 'ENVIAR'
+    Invoke-Control $send
+    Wait-Until -Description 'PowerShell disponible tras la entrada interactiva' -Predicate {
+        $paste.Current.IsEnabled
+    }
+    Invoke-Control $copy
+    Wait-Clipboard -Description 'salida de Read-Host en el portapapeles' -ClipboardPredicate {
+        param($value)
+        $value.Contains('TAP_INTERACTIVE_OK')
+    }
+    Write-Host 'PASS: entrada a un proceso interactivo mediante ENVIAR.'
+
     $interrupt = Find-NamedElement -Window $window -Name 'INTERRUMPIR'
     Set-ClipboardText 'Start-Sleep -Seconds 30'
     Invoke-Control $paste
@@ -250,6 +295,30 @@ try {
     }
     Write-Host 'PASS: la sesión sigue operativa y el historial limpio no resucita.'
 
+    $wsl = Join-Path $env:WINDIR 'System32\wsl.exe'
+    if (Test-Path -LiteralPath $wsl -PathType Leaf) {
+        $opencodePath = & $wsl -e bash -lc 'command -v opencode' 2>$null
+        if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrWhiteSpace($opencodePath)) {
+            Set-ClipboardText 'wsl.exe -e bash -lc "opencode --version"'
+            Invoke-Control $paste
+            Wait-Until -Description 'OpenCode no interactivo completado' -Predicate {
+                $paste.Current.IsEnabled
+            }
+            Invoke-Control $copy
+            Wait-Clipboard -Description 'versión de OpenCode en el portapapeles' -ClipboardPredicate {
+                param($value)
+                $value -match '[0-9]+\.[0-9]+\.[0-9]+'
+            }
+            Write-Host 'PASS: OpenCode no interactivo se ejecuta desde el anfitrión y su salida queda en COPY ALL.'
+        }
+        else {
+            Write-Host 'SKIP: OpenCode no está disponible en la distribución WSL predeterminada.'
+        }
+    }
+    else {
+        Write-Host 'SKIP: WSL no está disponible.'
+    }
+
     Set-ClipboardText 'exit'
     Invoke-Control $paste
     Wait-ForStatus -Window $window -Text 'La terminal se cerró'
@@ -266,6 +335,20 @@ try {
         throw "La aplicación terminó con código $($process.ExitCode)."
     }
     Write-Host 'PASS: cierre limpio de la ventana y de la sesión alojada.'
+
+    $historyExistsAfter = Test-Path -LiteralPath $historyPath -PathType Leaf
+    if ($historyExistedBefore) {
+        if (-not $historyExistsAfter) {
+            throw 'El historial persistente de PowerShell desapareció durante la prueba.'
+        }
+        if ((Get-FileSha256 -Path $historyPath) -ne $historyHashBefore) {
+            throw 'La sesión alojada modificó el historial persistente de PowerShell.'
+        }
+    }
+    elseif ($historyExistsAfter) {
+        throw 'La sesión alojada creó un historial persistente de PowerShell.'
+    }
+    Write-Host 'PASS: el historial persistente de PowerShell no se modificó ni se eliminó.'
     Write-Host 'PASS: prueba de interfaz completa.'
 }
 finally {
