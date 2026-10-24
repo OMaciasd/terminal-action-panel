@@ -91,14 +91,17 @@ Los comandos se envían como un bloque multilínea en el ámbito actual de Power
 En Windows, con Windows PowerShell 5.1:
 
 ```powershell
-./build.ps1 -Version 1.0.2 -OutputDirectory ./dist
+./build.ps1 -Version 1.0.3 -OutputDirectory ./dist
 ./tests/Run-Tests.ps1 -ExecutablePath ./dist/TerminalActionPanel.exe
 ./tests/Ui-SmokeTest.ps1 -ExecutablePath ./dist/TerminalActionPanel.exe
+./tests/Lifecycle-Tests.ps1
 ```
 
 `--self-test` comprueba el filtro VT, el detector de prompt entre lecturas parciales, el límite y limpieza del transcript, la conversión de comandos multilínea y una integración real PowerShell 5.1 + ConPTY. GitHub Actions compila y ejecuta estas pruebas en `windows-latest` tanto en CI como antes de publicar un release.
 
-`Ui-SmokeTest.ps1` es una prueba de interfaz que requiere una sesión de escritorio interactiva y Windows PowerShell en modo STA (`powershell.exe -STA`). Abre la aplicación real, pulsa los botones mediante UI Automation y verifica: identificación de objetivo/permisos, espera de disponibilidad, bloqueo durante la ejecución, comando multilínea, interrupción con Ctrl+C, `COPY ALL` con la primera y última línea de 120 líneas de scrollback, `CLEAR ALL` con el portapapeles y el transcript vacíos, portapapeles vacío, nueva ejecución tras limpiar, cierre de la terminal y cierre limpio de la ventana. Restaura el portapapeles del usuario al terminar. No se ejecuta en CI porque los runners alojados no garantizan un escritorio interactivo.
+`Ui-SmokeTest.ps1` es una prueba de interfaz que requiere una sesión de escritorio interactiva y Windows PowerShell en modo STA (`powershell.exe -STA`). Abre la aplicación real, pulsa los botones mediante UI Automation y verifica: identificación de objetivo/permisos, espera de disponibilidad, bloqueo durante la ejecución, comando multilínea, entrada a un proceso interactivo mediante `ENVIAR`, interrupción con Ctrl+C, `COPY ALL` con la primera y última línea de 120 líneas de scrollback, `CLEAR ALL` con el portapapeles y el transcript vacíos, portapapeles vacío, nueva ejecución tras limpiar, cierre de la terminal, que el historial persistente de PowerShell no se modifique y cierre limpio de la ventana. Restaura el portapapeles del usuario al terminar. No se ejecuta en CI porque los runners alojados no garantizan un escritorio interactivo.
+
+`Lifecycle-Tests.ps1` prueba el ciclo de vida completo contra la última publicación estable: instalación, instalación repetida con hashes idénticos, apertura mediante el acceso directo, actualización, desinstalación conservando archivos ajenos, desinstalación limpia y reinstalación. Descarga la versión publicada y valida su SHA-256; requiere Internet, no requiere administrador y cierra cualquier instancia abierta antes de empezar. No se ejecuta en CI para no instalar en el perfil del runner ni depender de una publicación concreta.
 
 ## Repositorio
 
